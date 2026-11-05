@@ -4,7 +4,7 @@ import json
 import docx
 
 
-class StrictProjectEvaluatorAgent:
+class RigorousProjectEvaluatorAgent:
     def __init__(self, docx_path):
         self.docx_path = docx_path
         self.text_content = ""
@@ -30,14 +30,13 @@ class StrictProjectEvaluatorAgent:
         self.raw_text_lower = self.text_content.lower()
 
     def evaluate_linux(self):
-        """ Auditoría estricta de la Capa 1: Oracle Linux (2.0 Pts) """
         nota = 0.0
         max_nota = 2.0
         detalles = []
 
         # 1. Usuarios, Grupos y Permisos (0.5 pt)
-        has_group = "groupadd" in self.text_content or "dba_sgas" in self.text_content
-        has_user = "useradd" in self.text_content or "sgas_user" in self.text_content
+        has_group = "groupadd" in self.text_content and "dba_sgas" in self.text_content
+        has_user = "useradd" in self.text_content and "sgas_user" in self.text_content
         has_perms = "chmod 700" in self.text_content or "chmod -R 700" in self.text_content or "rwx------" in self.text_content
 
         if has_group and has_user and has_perms:
@@ -98,7 +97,6 @@ class StrictProjectEvaluatorAgent:
         self.desglose["MF0223_3_Linux"] = {"nota": round(nota, 2), "max": max_nota, "detalles": detalles}
 
     def evaluate_oracle(self):
-        """ Auditoría estricta de la Capa 2: Oracle Database 19c / PL/SQL (3.5 Pts) """
         nota = 0.0
         max_nota = 3.5
         detalles = []
@@ -152,7 +150,6 @@ class StrictProjectEvaluatorAgent:
         self.desglose["MF0226_3_Oracle"] = {"nota": round(nota, 2), "max": max_nota, "detalles": detalles}
 
     def evaluate_java(self):
-        """ Auditoría estricta de la Capa 3: Java Backend / POO (3.0 Pts) """
         nota = 0.0
         max_nota = 3.0
         detalles = []
@@ -204,7 +201,6 @@ class StrictProjectEvaluatorAgent:
         self.desglose["MF0227_3_Java"] = {"nota": round(nota, 2), "max": max_nota, "detalles": detalles}
 
     def evaluate_web(self):
-        """ Auditoría estricta de la Capa 4: Frontal Web (1.5 Pts) """
         nota = 0.0
         max_nota = 1.5
         detalles = []

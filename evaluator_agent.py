@@ -4,13 +4,15 @@ import json
 import docx
 
 
-class AdvancedProjectEvaluatorAgent:
+class StrictProjectEvaluatorAgent:
     def __init__(self, docx_path):
         self.docx_path = docx_path
         self.text_content = ""
+        self.raw_text_lower = ""
         self.desglose = {}
         self.puntos_fuertes = []
         self.areas_mejora = []
+        self.fallos_criticos = []
         self._load_document()
 
     def _load_document(self):
@@ -25,192 +27,227 @@ class AdvancedProjectEvaluatorAgent:
                 for cell in row.cells:
                     full_text.append(cell.text)
         self.text_content = "\n".join(full_text)
+        self.raw_text_lower = self.text_content.lower()
 
     def evaluate_linux(self):
+        """ Auditoría estricta de la Capa 1: Oracle Linux (2.0 Pts) """
         nota = 0.0
         max_nota = 2.0
         detalles = []
 
-        # 1. Permisos y Usuarios (0.5 pt)
-        if ("chmod 700" in self.text_content or "chmod -R 700" in self.text_content) and (
-                "sgas_user" in self.text_content and "dba_sgas" in self.text_content):
-            nota += 0.50
-            self.puntos_fuertes.append(
-                "Capa Linux: Asignación correcta de usuario/grupo de servicio y permisos octales restrictivos (700).")
-            detalles.append("Permisos y Usuarios: 0.50/0.50 Pts (Correcto)")
-        else:
-            self.areas_mejora.append(
-                "Capa Linux: Revisar la asignación de permisos octales (chmod 700) y la creación de usuario/grupo (sgas_user:dba_sgas).")
-            detalles.append("Permisos y Usuarios: 0.00/0.50 Pts (Incompleto)")
+        # 1. Usuarios, Grupos y Permisos (0.5 pt)
+        has_group = "groupadd" in self.text_content or "dba_sgas" in self.text_content
+        has_user = "useradd" in self.text_content or "sgas_user" in self.text_content
+        has_perms = "chmod 700" in self.text_content or "chmod -R 700" in self.text_content or "rwx------" in self.text_content
 
-        # 2. Configuración LVM (0.5 pt)
-        if "vgcreate" in self.text_content and "lvcreate" in self.text_content and "ext4" in self.text_content:
+        if has_group and has_user and has_perms:
             nota += 0.50
             self.puntos_fuertes.append(
-                "Capa Linux: Correcta estructura de volúmenes lógicos (LVM) formateados en ext4 para aislar BD y Logs.")
-            detalles.append("Almacenamiento LVM: 0.50/0.50 Pts (Correcto)")
+                "Linux: Gestión correcta de grupos, usuarios de servicio (sgas_user) y permisos octales restrictivos (700).")
+            detalles.append("Usuarios, Grupos y Permisos: 0.50/0.50 Pts (Correcto)")
         else:
-            self.areas_mejora.append(
-                "Capa Linux: Falta la especificación completa de volúmenes LVM (vgcreate/lvcreate) o formateo ext4.")
-            detalles.append("Almacenamiento LVM: 0.00/0.50 Pts (Faltan comandos LVM)")
+            self.fallos_criticos.append(
+                "Linux: Faltan comandos de creación de usuario/grupo o no se aplican permisos de seguridad estrictos (chmod 700).")
+            detalles.append("Usuarios, Grupos y Permisos: 0.00/0.50 Pts (Fallo de seguridad o ausencia de comandos)")
 
-        # 3. Script Bash (0.5 pt)
-        if "#!/bin/bash" in self.text_content and "metrics.log" in self.text_content:
+        # 2. Almacenamiento LVM (0.5 pt)
+        has_pv_vg = "pvcreate" in self.text_content and "vgcreate" in self.text_content
+        has_lv = "lvcreate" in self.text_content and ("lv_db" in self.text_content or "lv_logs" in self.text_content)
+        has_fs = "mkfs.ext4" in self.text_content or "ext4" in self.text_content
+
+        if has_pv_vg and has_lv and has_fs:
             nota += 0.50
             self.puntos_fuertes.append(
-                "Capa Linux: Daemon de monitorización Bash funcional con volcado estructurado en métricas de log.")
+                "Linux: Estructura LVM completa implementada (Physical Volume, Volume Group vg_sgas y Logical Volumes formateados en ext4).")
+            detalles.append("Estructura LVM y Sistemas de Ficheros: 0.50/0.50 Pts (Correcto)")
+        else:
+            self.fallos_criticos.append(
+                "Linux: Configuración de LVM incompleta (faltan comandos pvcreate, vgcreate, lvcreate o formateo ext4).")
+            detalles.append("Estructura LVM y Sistemas de Ficheros: 0.00/0.50 Pts (Incompleto)")
+
+        # 3. Script Bash de Monitorización (0.5 pt)
+        has_shebang = "#!/bin/bash" in self.text_content
+        has_metrics = "top" in self.text_content or "free" in self.text_content or "df" in self.text_content
+        has_logging = "metrics.log" in self.text_content
+
+        if has_shebang and has_metrics and has_logging:
+            nota += 0.50
+            self.puntos_fuertes.append(
+                "Linux: Script Bash de monitorización implementado con captura de recursos del sistema y registro en log estructurado.")
             detalles.append("Script Bash Monitor: 0.50/0.50 Pts (Correcto)")
         else:
             self.areas_mejora.append(
-                "Capa Linux: El script de monitorización Bash no está completo o no vuelca métricas en log.")
+                "Linux: El script Bash de monitorización carece de comandos de recolección de métricas (top/free/df) o volcado en log.")
             detalles.append("Script Bash Monitor: 0.00/0.50 Pts (Incompleto)")
 
         # 4. Servicio Systemd (0.5 pt)
-        if "[Unit]" in self.text_content and "ExecStart" in self.text_content:
+        has_unit = "[Unit]" in self.text_content or "description" in self.text_content.lower()
+        has_service = "[Service]" in self.text_content and "ExecStart" in self.text_content
+        has_restart = "restart" in self.text_content.lower()
+
+        if has_unit and has_service and has_restart:
             nota += 0.50
             self.puntos_fuertes.append(
-                "Capa Linux: Unidad de servicio Systemd (.service) bien configurada para ejecución desatendida.")
+                "Linux: Fichero de servicio Systemd configurado correctamente con directivas de arranque y reintento.")
             detalles.append("Servicio Systemd: 0.50/0.50 Pts (Correcto)")
         else:
-            self.areas_mejora.append("Capa Linux: Definición de servicio Systemd ausente o sintaxis incorrecta.")
-            detalles.append("Servicio Systemd: 0.00/0.50 Pts (No detectado)")
+            self.areas_mejora.append(
+                "Linux: Estructura del servicio Systemd (.service) incompleta (faltan secciones [Unit], [Service] o directiva ExecStart).")
+            detalles.append("Servicio Systemd: 0.00/0.50 Pts (Estructura inválida)")
 
-        self.desglose["MF0223_3_Linux"] = {
-            "nota": round(nota, 2),
-            "max": max_nota,
-            "detalles": detalles
-        }
+        self.desglose["MF0223_3_Linux"] = {"nota": round(nota, 2), "max": max_nota, "detalles": detalles}
 
     def evaluate_oracle(self):
+        """ Auditoría estricta de la Capa 2: Oracle Database 19c / PL/SQL (3.5 Pts) """
         nota = 0.0
         max_nota = 3.5
         detalles = []
 
-        # 1. DDL y 3FN (1.0 pt)
-        if "CREATE TABLE INCIDENCIAS" in self.text_content and "FOREIGN KEY" in self.text_content and "CREATE INDEX" in self.text_content:
+        # 1. Diseño DDL y Normalización 3FN (1.0 pt)
+        has_tables = "create table" in self.raw_text_lower and "incidencias" in self.raw_text_lower
+        has_pk = "primary key" in self.raw_text_lower
+        has_fk = "foreign key" in self.raw_text_lower or "references" in self.raw_text_lower
+        has_index = "create index" in self.raw_text_lower
+
+        if has_tables and has_pk and has_fk and has_index:
             nota += 1.00
             self.puntos_fuertes.append(
-                "Capa Oracle: Modelo relacional normalizado en 3FN con claves foráneas e índices B-Tree.")
-            detalles.append("Diseño DDL & 3FN: 1.00/1.00 Pts (Correcto)")
+                "Oracle: Modelo relacional normalizado en 3FN con claves primarias, claves foráneas e índices B-Tree optimizados.")
+            detalles.append("Esquema DDL, PK, FK e Índices: 1.00/1.00 Pts (Correcto)")
         else:
-            self.areas_mejora.append(
-                "Capa Oracle: Revisar el esquema DDL (falta definición de claves foráneas o índices B-Tree).")
-            detalles.append("Diseño DDL & 3FN: 0.00/1.00 Pts (Incompleto)")
+            self.fallos_criticos.append(
+                "Oracle: Fallas estructurales en el DDL (ausencia de claves primarias, restricciones de claves foráneas o índices B-Tree).")
+            detalles.append("Esquema DDL, PK, FK e Índices: 0.00/1.00 Pts (Faltan restricciones relacionales)")
 
-        # 2. Trigger PL/SQL (1.25 pt)
-        if "CREATE OR REPLACE TRIGGER" in self.text_content and ":OLD" in self.text_content and ":NEW" in self.text_content:
+        # 2. Trigger de Auditoría PL/SQL (1.25 pt)
+        has_trigger_decl = "create or replace trigger" in self.raw_text_lower or "create trigger" in self.raw_text_lower
+        has_pseudoregs = ":old" in self.raw_text_lower and ":new" in self.raw_text_lower
+        has_trigger_dml = "insert into" in self.raw_text_lower and "historico" in self.raw_text_lower
+
+        if has_trigger_decl and has_pseudoregs and has_trigger_dml:
             nota += 1.25
             self.puntos_fuertes.append(
-                "Capa Oracle: Disparador de auditoría PL/SQL correctamente implementado con pseudoregistros :OLD y :NEW.")
-            detalles.append("Trigger Auditoría PL/SQL: 1.25/1.25 Pts (Correcto)")
+                "Oracle: Trigger de auditoría PL/SQL implementado correctamente utilizando pseudoregistros :OLD y :NEW para control de cambios.")
+            detalles.append("Trigger de Auditoría PL/SQL: 1.25/1.25 Pts (Correcto)")
         else:
-            self.areas_mejora.append(
-                "Capa Oracle: El trigger de auditoría no utiliza adecuadamente los pseudoregistros :OLD y :NEW.")
-            detalles.append("Trigger Auditoría PL/SQL: 0.00/1.25 Pts (Error en pseudoregistros)")
+            self.fallos_criticos.append(
+                "Oracle: El trigger de auditoría PL/SQL está incompleto o no hace uso correcto de los pseudoregistros :OLD y :NEW.")
+            detalles.append("Trigger de Auditoría PL/SQL: 0.00/1.25 Pts (Error en lógica de trigger)")
 
-        # 3. Procedimiento Almacenado & Transacciones (1.25 pt)
-        if "CREATE OR REPLACE PROCEDURE" in self.text_content and "COMMIT" in self.text_content and "ROLLBACK" in self.text_content:
+        # 3. Procedimiento Almacenado Transaccional (1.25 pt)
+        has_sp_decl = "create or replace procedure" in self.raw_text_lower or "create procedure" in self.raw_text_lower
+        has_tx_control = "commit" in self.raw_text_lower and "rollback" in self.raw_text_lower
+        has_exception = "exception" in self.raw_text_lower or "raise_application_error" in self.raw_text_lower
+
+        if has_sp_decl and has_tx_control and has_exception:
             nota += 1.25
             self.puntos_fuertes.append(
-                "Capa Oracle: Procedimiento almacenado transaccional con control explícito (COMMIT/ROLLBACK) y gestión de excepciones.")
-            detalles.append("Procedimiento Almacenado: 1.25/1.25 Pts (Correcto)")
+                "Oracle: Procedimiento almacenado transaccional robusto con control explícito (COMMIT/ROLLBACK) y manejo de excepciones.")
+            detalles.append("Procedimiento Almacenado & Transacciones: 1.25/1.25 Pts (Correcto)")
         else:
-            self.areas_mejora.append(
-                "Capa Oracle: Falta el control transaccional explícito (COMMIT/ROLLBACK) o bloque EXCEPTION en el SP.")
-            detalles.append("Procedimiento Almacenado: 0.00/1.25 Pts (Falta control de transacciones)")
+            self.fallos_criticos.append(
+                "Oracle: El procedimiento almacenado carece de control transaccional explícito (COMMIT/ROLLBACK) o bloques de excepción.")
+            detalles.append("Procedimiento Almacenado & Transacciones: 0.00/1.25 Pts (Riesgo transaccional)")
 
-        self.desglose["MF0226_3_Oracle"] = {
-            "nota": round(nota, 2),
-            "max": max_nota,
-            "detalles": detalles
-        }
+        self.desglose["MF0226_3_Oracle"] = {"nota": round(nota, 2), "max": max_nota, "detalles": detalles}
 
     def evaluate_java(self):
+        """ Auditoría estricta de la Capa 3: Java Backend / POO (3.0 Pts) """
         nota = 0.0
         max_nota = 3.0
         detalles = []
 
-        # 1. Encapsulación y Modelo (0.75 pt)
-        if (
-                "private int idIncidencia" in self.text_content or "private String" in self.text_content) and "getIdIncidencia" in self.text_content:
+        # 1. Modelo de Dominio y Encapsulación (0.75 pt)
+        has_class = "class incidenci" in self.raw_text_lower or "class servidor" in self.raw_text_lower
+        has_private_fields = "private " in self.text_content
+        has_getters_setters = "get" in self.text_content and "set" in self.text_content
+
+        if has_class and has_private_fields and has_getters_setters:
             nota += 0.75
             self.puntos_fuertes.append(
-                "Capa Java: Clases de dominio correctamente encapsuladas con atributos privados y getters/setters.")
-            detalles.append("Modelo de Dominio POO: 0.75/0.75 Pts (Correcto)")
+                "Java: Clases del modelo de dominio correctamente encapsuladas con atributos privados y métodos de acceso.")
+            detalles.append("Encapsulación y Modelo POO: 0.75/0.75 Pts (Correcto)")
         else:
             self.areas_mejora.append(
-                "Capa Java: Asegurar la correcta encapsulación de los atributos privados en las clases de modelo.")
-            detalles.append("Modelo de Dominio POO: 0.00/0.75 Pts (Incompleto)")
+                "Java: Incumplimiento del principio de encapsulamiento (atributos públicos o ausencia de getters/setters).")
+            detalles.append("Encapsulación y Modelo POO: 0.00/0.75 Pts (Fallo de POO)")
 
         # 2. Patrón DAO y JDBC (1.25 pt)
-        if "PreparedStatement" in self.text_content and "ResultSet" in self.text_content and "executeQuery" in self.text_content:
+        has_dao_pattern = "dao" in self.raw_text_lower or "repository" in self.raw_text_lower
+        has_jdbc_prep = "preparedstatement" in self.raw_text_lower
+        has_jdbc_res = "resultset" in self.raw_text_lower or "executequery" in self.raw_text_lower
+
+        if has_dao_pattern and has_jdbc_prep and has_jdbc_res:
             nota += 1.25
             self.puntos_fuertes.append(
-                "Capa Java: Patrón DAO e integración JDBC nativa utilizando PreparedStatement y ResultSet de forma segura.")
-            detalles.append("Patrón DAO & JDBC: 1.25/1.25 Pts (Correcto)")
+                "Java: Patrón DAO implementado correctamente mediante JDBC nativo utilizando PreparedStatement (prevención de SQL Injection) y ResultSet.")
+            detalles.append("Patrón DAO e Integración JDBC: 1.25/1.25 Pts (Correcto)")
         else:
-            self.areas_mejora.append(
-                "Capa Java: No se detectó el uso correcto de PreparedStatement y ResultSet en la capa DAO.")
-            detalles.append("Patrón DAO & JDBC: 0.00/1.25 Pts (Uso incorrecto de JDBC)")
+            self.fallos_criticos.append(
+                "Java: Uso incorrecto o ausente de JDBC (no se utiliza PreparedStatement, exponiendo la aplicación a inyección SQL).")
+            detalles.append("Patrón DAO e Integración JDBC: 0.00/1.25 Pts (Vulnerabilidad / DAO ausente)")
 
         # 3. Pruebas Unitarias JUnit (1.0 pt)
-        if "@Test" in self.text_content and ("assertTrue" in self.text_content or "assertEquals" in self.text_content):
+        has_junit_annot = "@test" in self.raw_text_lower
+        has_assertions = "assert" in self.raw_text_lower
+
+        if has_junit_annot and has_assertions:
             nota += 1.00
             self.puntos_fuertes.append(
-                "Capa Java: Batería de pruebas unitarias con JUnit aplicando aserciones y metodología de testeo.")
-            detalles.append("Pruebas Unitarias JUnit: 1.00/1.00 Pts (Correcto)")
+                "Java: Batería de pruebas unitarias implementada con JUnit (@Test) y aserciones de verificación.")
+            detalles.append("Pruebas Unitarias JUnit (AAA): 1.00/1.00 Pts (Correcto)")
         else:
             self.areas_mejora.append(
-                "Capa Java: Incluir pruebas unitarias JUnit explícitas con aserciones (assertTrue, assertEquals).")
-            detalles.append("Pruebas Unitarias JUnit: 0.00/1.00 Pts (Faltan Tests/Aserciones)")
+                "Java: Ausencia de pruebas unitarias JUnit o falta de aserciones para validar el comportamiento del código.")
+            detalles.append("Pruebas Unitarias JUnit (AAA): 0.00/1.00 Pts (Faltan tests)")
 
-        self.desglose["MF0227_3_Java"] = {
-            "nota": round(nota, 2),
-            "max": max_nota,
-            "detalles": detalles
-        }
+        self.desglose["MF0227_3_Java"] = {"nota": round(nota, 2), "max": max_nota, "detalles": detalles}
 
     def evaluate_web(self):
+        """ Auditoría estricta de la Capa 4: Frontal Web (1.5 Pts) """
         nota = 0.0
         max_nota = 1.5
         detalles = []
 
-        # 1. Servlet Controller (0.75 pt)
-        if "@WebServlet" in self.text_content or "HttpServlet" in self.text_content:
+        # 1. Controlador Servlet HTTP (0.75 pt)
+        has_servlet_annot = "@webservlet" in self.raw_text_lower or "extends httpservlet" in self.raw_text_lower
+        has_methods = "doget" in self.raw_text_lower and "dopost" in self.raw_text_lower
+
+        if has_servlet_annot and has_methods:
             nota += 0.75
-            self.puntos_fuertes.append("Capa Web: Controlador Servlet HTTP configurado procesando peticiones GET/POST.")
+            self.puntos_fuertes.append(
+                "Web: Controlador Servlet implementado correctamente procesando peticiones HTTP GET y POST.")
             detalles.append("Controlador Servlet HTTP: 0.75/0.75 Pts (Correcto)")
         else:
             self.areas_mejora.append(
-                "Capa Web: Implementar el controlador Servlet anotado con @WebServlet para atender solicitudes HTTP.")
-            detalles.append("Controlador Servlet HTTP: 0.00/0.75 Pts (No detectado)")
+                "Web: Falta la implementación del Servlet HTTP o de los métodos doGet/doPost de control.")
+            detalles.append("Controlador Servlet HTTP: 0.00/0.75 Pts (Incompleto)")
 
-        # 2. Vista Dashboard (0.75 pt)
-        if "<table>" in self.text_content or "dashboard.jsp" in self.text_content:
+        # 2. Vista Dashboard HTML/JSP (0.75 pt)
+        has_html_table = "<table" in self.raw_text_lower
+        has_form = "<form" in self.raw_text_lower
+
+        if has_html_table and has_form:
             nota += 0.75
             self.puntos_fuertes.append(
-                "Capa Web: Vista gráfica (HTML/JSP) renderizando la tabla de incidencias y formulario de actualización.")
+                "Web: Vista de Cuadro de Mando (JSP/HTML) con soporte para tablas de datos y formularios de actualización de estado.")
             detalles.append("Vista Dashboard Web: 0.75/0.75 Pts (Correcto)")
         else:
             self.areas_mejora.append(
-                "Capa Web: Construir la vista HTML/JSP del Cuadro de Mando con tabla de presentación.")
-            detalles.append("Vista Dashboard Web: 0.00/0.75 Pts (No detectada)")
+                "Web: La vista web carece de tablas de visualización o formularios interactivos de gestión.")
+            detalles.append("Vista Dashboard Web: 0.00/0.75 Pts (Incompleto)")
 
-        self.desglose["MF0227_3_Web"] = {
-            "nota": round(nota, 2),
-            "max": max_nota,
-            "detalles": detalles
-        }
+        self.desglose["MF0227_3_Web"] = {"nota": round(nota, 2), "max": max_nota, "detalles": detalles}
 
     def _generate_feedback(self, nota_total):
         if nota_total >= 9.0:
-            return "¡Excelente trabajo! La entrega cumple de forma sobresaliente con todos los requisitos técnicos de la infraestructura Linux, arquitectura Oracle 19c, backend Java POO y frontal Web."
+            return "Sobresaliente. El proyecto cumple rigurosamente con todas las especificaciones técnicas del certificado IFCD0112 en sus cuatro capas."
         elif nota_total >= 7.0:
-            return "Muy buen proyecto. La solución es totalmente funcional y demuestra un sólido dominio técnico de los contenidos del certificado IFCD0112."
+            return "Notable. Excelente trabajo con alta solvencia técnica en la mayoría de los módulos. Se deben revisar mínimos detalles indicados."
         elif nota_total >= 5.0:
-            return "Proyecto Aprobado. La entrega cumple con la funcionalidad mínima requerida, aunque existen aspectos de mejora en algunas capas técnicas que deben revisarse."
+            return "Aprobado (Apto). El proyecto alcanza los mínimos exigidos por el estándar del SEPE, pero presenta áreas críticas mejorables."
         else:
-            return "Proyecto No Apto. La entrega presenta carencias importantes en la implementación de las capas requeridas. Se recomienda revisar los puntos indicados en las áreas de mejora."
+            return "Suspenso (No Apto). La entrega contiene deficiencias graves o ausencia de componentes troncales obligatorios en las capas técnicas."
 
     def run_evaluation(self):
         self.evaluate_linux()
@@ -222,27 +259,13 @@ class AdvancedProjectEvaluatorAgent:
         nota_final = round(nota_final, 2)
         resultado = "APTO" if nota_final >= 5.0 else "NO APTO"
 
-        report = {
+        return {
             "proyecto": os.path.basename(self.docx_path),
             "calificacion_global": nota_final,
             "resultado": resultado,
             "desglose_modulos": self.desglose,
             "puntos_fuertes": self.puntos_fuertes,
             "areas_de_mejora": self.areas_mejora,
+            "fallos_criticos": self.fallos_criticos,
             "feedback_alumno": self._generate_feedback(nota_final)
         }
-        return report
-
-
-# Ejemplo de ejecución CLI
-if __name__ == "__main__":
-    import sys
-
-    file_target = sys.argv[1] if len(sys.argv) > 1 else "Solucionario_Proyecto_Final_SystemGuard_IFCD0112.docx"
-
-    if os.path.exists(file_target):
-        agent = AdvancedProjectEvaluatorAgent(file_target)
-        result = agent.run_evaluation()
-        print(json.dumps(result, indent=4, ensure_ascii=False))
-    else:
-        print(f"Escriba la ruta de un archivo .docx válido. Archivo '{file_target}' no encontrado.")
